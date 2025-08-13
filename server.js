@@ -13,25 +13,30 @@ app.get("/status", async (req, res) => {
     p24: "UNKNOWN"
   };
 
+  // 1) Check Stripe availability
   try {
     await stripe.balance.retrieve();
     status.stripe = "UP";
   } catch (err) {
+    console.error("Stripe status error:", err.message);
     status.stripe = "DOWN";
-    console.error("[STATUS] Stripe error:", err.message);
   }
 
+  // 2) Check Stripe's ability to initiate a P24 payment
   try {
-    const p24Response = await axios.get("https://secure.przelewy24.pl/", { timeout: 3000 });
-    status.p24 = p24Response.status === 200 ? "UP" : "DOWN";
+    await stripe.paymentMethods.create({
+      type: "p24",
+      billing_details: { name: "Test User" }
+    });
+    status.p24 = "UP";
   } catch (err) {
+    console.error("P24 availability error:", err.message);
     status.p24 = "DOWN";
-    console.error("[STATUS] P24 error:", err.message);
   }
-
 
   res.json(status);
 });
+
 
 
 // Handle webhook before express.json()

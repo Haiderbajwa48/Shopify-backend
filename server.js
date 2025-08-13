@@ -6,6 +6,33 @@ const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const axios = require("axios");
 
 app.use(cors());
+app.get("/status", async (req, res) => {
+  const status = {
+    server: "UP",
+    stripe: "UNKNOWN",
+    p24: "UNKNOWN"
+  };
+
+  try {
+    await stripe.balance.retrieve();
+    status.stripe = "UP";
+  } catch (err) {
+    status.stripe = "DOWN";
+    console.error("[STATUS] Stripe error:", err.message);
+  }
+
+  try {
+    const p24Response = await axios.get("https://secure.przelewy24.pl/", { timeout: 3000 });
+    status.p24 = p24Response.status === 200 ? "UP" : "DOWN";
+  } catch (err) {
+    status.p24 = "DOWN";
+    console.error("[STATUS] P24 error:", err.message);
+  }
+
+
+  res.json(status);
+});
+
 
 // Handle webhook before express.json()
 app.post("/webhook", express.raw({ type: 'application/json' }), async (req, res) => {

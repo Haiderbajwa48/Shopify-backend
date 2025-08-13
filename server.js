@@ -10,7 +10,6 @@ app.get("/status", async (req, res) => {
   const status = {
     server: "UP",
     stripe: "UNKNOWN",
-    p24: "UNKNOWN"
   };
 
   // 1) Check Stripe availability

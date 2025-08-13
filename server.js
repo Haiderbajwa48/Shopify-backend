@@ -21,19 +21,6 @@ app.get("/status", async (req, res) => {
     console.error("Stripe status error:", err.message);
     status.stripe = "DOWN";
   }
-
-  // 2) Check Stripe's ability to initiate a P24 payment
-  try {
-    await stripe.paymentMethods.create({
-      type: "p24",
-      billing_details: { name: "Test User" }
-    });
-    status.p24 = "UP";
-  } catch (err) {
-    console.error("P24 availability error:", err.message);
-    status.p24 = "DOWN";
-  }
-
   res.json(status);
 });
 

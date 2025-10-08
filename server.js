@@ -5,7 +5,22 @@ const cors = require("cors");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const axios = require("axios");
 
-app.use(cors());
+app.use(
+  cors({
+    origin: ["https://luxenordique.com"], // your live domain
+    methods: ["GET", "POST"],
+    credentials: true,
+  })
+);
+
+// ✅ Disable caching so Railway doesn’t block fetch
+app.use((req, res, next) => {
+  res.setHeader("Cache-Control", "no-store");
+  next();
+});
+
+
+
 app.get("/status", async (req, res) => {
   const status = {
     server: "UP",
@@ -372,7 +387,8 @@ app.get("/order-details", async (req, res) => {
 
       return shippingRate.display_name || (isPolish ? 'Nieznana opcja' : 'Unknown option');
     })();
-
+    
+    res.setHeader("Access-Control-Allow-Origin", "https://luxenordique.com");
     res.json({
       customer_email: session.customer_details?.email || 'Not provided',
       amount_total: session.amount_total,

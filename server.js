@@ -7,7 +7,7 @@ const axios = require("axios");
 
 app.use(
   cors({
-    origin: ["https://luxenordique.com"], // your live domain
+    origin: ["https://luxenordique.com", "https://gerlak.pl"], // your live domain
     methods: ["GET", "POST"],
     credentials: true,
   })
@@ -330,8 +330,8 @@ app.post("/create-checkout-session", async (req, res) => {
       quantity: item.quantity,
     })),
 
-    success_url: `https://luxenordique.com/pages/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: 'https://luxenordique.com/cart',
+    success_url: `https://gerlak.pl/pages/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: 'https://gerlak.pl/cart',
   };
 
   if (customer_email && customer_email.includes('@')) {
@@ -388,7 +388,7 @@ app.get("/order-details", async (req, res) => {
       return shippingRate.display_name || (isPolish ? 'Nieznana opcja' : 'Unknown option');
     })();
     
-    res.setHeader("Access-Control-Allow-Origin", "https://luxenordique.com");
+    res.setHeader("Access-Control-Allow-Origin", "https://luxenordique.com" , 'https://gerlak.pl/cart');
     res.json({
       customer_email: session.customer_details?.email || 'Not provided',
       amount_total: session.amount_total,

@@ -7,7 +7,7 @@ const axios = require("axios");
 
 app.use(
   cors({
-    origin: ["https://luxenordique.com", "https://gerlak.pl"], // your live domain
+    origin: ["https://luxenordique.com", "https://gerlak.pl" ], // your live domain
     methods: ["GET", "POST"],
     credentials: true,
   })

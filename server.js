@@ -5,13 +5,26 @@ const cors = require("cors");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const axios = require("axios");
 
-app.use(
-  cors({
-    origin: ["https://luxenordique.com", "https://gerlak.pl" ], // your live domain
-    methods: ["GET", "POST"],
-    credentials: true,
-  })
-);
+
+const allowedOrigins = [
+  "https://luxenordique.com",
+  "https://www.luxenordique.com",
+  "https://gerlak.pl",
+  "https://www.gerlak.pl"
+];
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+  }
+  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.header("Access-Control-Allow-Credentials", "true");
+  if (req.method === "OPTIONS") return res.sendStatus(200);
+  next();
+});
+
 
 // ✅ Disable caching so Railway doesn’t block fetch
 app.use((req, res, next) => {
@@ -387,8 +400,8 @@ app.get("/order-details", async (req, res) => {
 
       return shippingRate.display_name || (isPolish ? 'Nieznana opcja' : 'Unknown option');
     })();
-    
-    res.setHeader("Access-Control-Allow-Origin", "https://luxenordique.com" , 'https://gerlak.pl');
+
+    res.setHeader("Access-Control-Allow-Origin", "https://luxenordique.com", 'https://gerlak.pl');
     res.json({
       customer_email: session.customer_details?.email || 'Not provided',
       amount_total: session.amount_total,

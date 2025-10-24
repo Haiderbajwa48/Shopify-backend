@@ -400,8 +400,6 @@ app.get("/order-details", async (req, res) => {
 
       return shippingRate.display_name || (isPolish ? 'Nieznana opcja' : 'Unknown option');
     })();
-
-    res.setHeader("Access-Control-Allow-Origin", "https://luxenordique.com", 'https://gerlak.pl');
     res.json({
       customer_email: session.customer_details?.email || 'Not provided',
       amount_total: session.amount_total,

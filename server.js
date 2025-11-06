@@ -421,9 +421,9 @@ app.get("/order-details", async (req, res) => {
 });
 
 
-// app.get("/", (req, res) => {
-//   res.send("✅ Shopify Stripe backend is working!");
-// });
+app.get("/", (req, res) => {
+  res.send("✅ Shopify Stripe backend is working!");
+});
 
 // ✅ Health check endpoint (add this before app.listen)
 app.get("/health", (req, res) => {

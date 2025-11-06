@@ -421,9 +421,19 @@ app.get("/order-details", async (req, res) => {
 });
 
 
-app.get("/", (req, res) => {
-  res.send("✅ Shopify Stripe backend is working!");
+// app.get("/", (req, res) => {
+//   res.send("✅ Shopify Stripe backend is working!");
+// });
+
+// ✅ Health check endpoint (add this before app.listen)
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    message: "Server is healthy and ready",
+    time: new Date().toISOString(),
+  });
 });
+
 
 app.listen(3000, () => {
   console.log("Server is running on port 3000");

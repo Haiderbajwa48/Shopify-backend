@@ -162,7 +162,7 @@ async function createShopifyOrder(session) {
   } catch (err) {
     console.warn("⚠️ Failed to expand line_items:", err.message);
     lineItems = [{
-      name: "Stripe P24 Order",
+      name: "Stripe BLIK Order",
       quantity: 1,
       price: session.amount_total / 100,
       properties: {
@@ -222,9 +222,9 @@ async function createShopifyOrder(session) {
         phone: customerDetails.phone || '',
       },
       note: isPolish
-        ? "Zapłacono przez Stripe (Przelewy24)"
-        : "Paid via Stripe (Przelewy24)",
-      tags: isPolish ? ["Przelewy24"] : ["P24"],
+        ? "Zapłacono przez Stripe (BLIK)"
+        : "Paid via Stripe (BLIK)",
+      tags: ["BLIK"],
       shipping_lines: [
         {
           title: session.shipping_cost?.shipping_rate?.display_name || (
@@ -269,7 +269,7 @@ app.post("/create-checkout-session", async (req, res) => {
   }
 
   const sessionData = {
-    payment_method_types: ['p24'],
+    payment_method_types: ['blik'],
     mode: 'payment',
     customer_creation: 'always',
     locale: isPolish ? 'pl' : 'en',
@@ -280,7 +280,7 @@ app.post("/create-checkout-session", async (req, res) => {
     phone_number_collection: { enabled: true },
     custom_text: {
       submit: {
-        message: isPolish ? 'Zostaniesz przekierowany do Przelewy24' : 'You will be redirected to Przelewy24'
+        message: isPolish ? 'Zapłać kodem BLIK' : 'Pay with your BLIK code'
       },
       shipping_address: {
         message: isPolish ? 'Dostawa dostępna tylko w Polsce' : 'Shipping available only to Poland'
@@ -435,6 +435,6 @@ app.get("/health", (req, res) => {
 });
 
 
-app.listen(3000, () => {
-  console.log("Server is running on port 3000");
+app.listen(process.env.PORT || 3000, () => {
+  console.log(`Server is running on port ${process.env.PORT || 3000}`);
 });

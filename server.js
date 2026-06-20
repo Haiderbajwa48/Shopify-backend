@@ -434,6 +434,12 @@ app.get("/health", (req, res) => {
   });
 });
 
+// Keep the backend awake so the first BLIK tap is instant (never sleeps)
+setInterval(() => {
+  axios
+    .get("https://shopify-backend-production-fdfe.up.railway.app/health")
+    .catch(() => {});
+}, 240000); // pings itself every 4 minutes
 
 app.listen(process.env.PORT || 3000, () => {
   console.log(`Server is running on port ${process.env.PORT || 3000}`);

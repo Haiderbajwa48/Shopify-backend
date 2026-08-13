@@ -4,6 +4,7 @@ const app = express();
 const cors = require("cors");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const axios = require("axios");
+const tracking = require("./tracking"); // ✅ NEW
 
 
 const allowedOrigins = [
@@ -31,6 +32,58 @@ app.use((req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
   next();
 });
+
+
+// ✅ NEW — trust Railway's proxy so req.ip / x-forwarded-for give the real customer IP
+app.set("trust proxy", true);
+
+
+// ✅ NEW — in-memory guard so the same Stripe session can never create two Shopify orders.
+// Covers Stripe retries and the completed / async_payment_succeeded overlap.
+const processedSessions = new Set();
+function claimSession(sessionId) {
+  if (processedSessions.has(sessionId)) return false;
+  processedSessions.add(sessionId);
+  if (processedSessions.size > 5000) {
+    processedSessions.delete(processedSessions.values().next().value);
+  }
+  return true;
+}
+
+
+// ✅ NEW — turn the browser's attribution payload into Stripe session metadata.
+// Stripe then carries it all the way to the webhook, so tracking no longer
+// depends on the customer's browser coming back from the BLIK app.
+function buildAttributionMetadata(attr, req) {
+  const a = attr || {};
+  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  const ip = forwarded || req.ip || "";
+
+  const raw = {
+    gclid: a.gclid,
+    gbraid: a.gbraid,
+    wbraid: a.wbraid,
+    fbp: a.fbp,
+    fbc: a.fbc,
+    ga_client_id: a.ga_client_id,
+    ga_session_id: a.ga_session_id,
+    utm_source: a.utm_source,
+    utm_medium: a.utm_medium,
+    utm_campaign: a.utm_campaign,
+    utm_content: a.utm_content,
+    client_ip: ip,
+    client_ua: req.headers["user-agent"] || ""
+  };
+
+  const out = {};
+  Object.keys(raw).forEach((k) => {
+    const v = raw[k];
+    if (v !== undefined && v !== null && String(v).length > 0) {
+      out[k] = String(v).slice(0, 480); // Stripe metadata limit is 500 chars
+    }
+  });
+  return out;
+}
 
 
 
@@ -65,22 +118,50 @@ app.post("/webhook", express.raw({ type: 'application/json' }), async (req, res)
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  if (event.type === 'checkout.session.completed') {
-    const rawSession = event.data.object;
+  // ✅ CHANGED — acknowledge Stripe immediately.
+  // A slow Shopify API call used to keep this request open; if it passed
+  // Stripe's timeout, Stripe retried and a second order could be created.
+  res.status(200).send('Webhook received');
 
-    try {
-      const session = await stripe.checkout.sessions.retrieve(rawSession.id, {
-        expand: ['line_items.data.price.product', 'shipping_cost.shipping_rate', 'shipping'],
-      });
-
-      console.log("✅ Payment successful. Session ID:", session.id);
-      await createShopifyOrder(session);
-    } catch (err) {
-      console.error("❌ Failed to retrieve full session:", err.message);
-    }
+  if (
+    event.type !== 'checkout.session.completed' &&
+    event.type !== 'checkout.session.async_payment_succeeded' // ✅ NEW — late-settling BLIK
+  ) {
+    return;
   }
 
-  res.status(200).send('Webhook received');
+  const rawSession = event.data.object;
+
+  // ✅ NEW — never create an order for a session that isn't actually paid.
+  if (rawSession.payment_status !== 'paid' && rawSession.payment_status !== 'no_payment_required') {
+    console.warn("⏳ SESSION NOT PAID — no order created:", rawSession.id, "status:", rawSession.payment_status);
+    return;
+  }
+
+  // ✅ NEW — duplicate guard
+  if (!claimSession(rawSession.id)) {
+    console.log("↩️ Duplicate webhook ignored:", rawSession.id);
+    return;
+  }
+
+  try {
+    const session = await stripe.checkout.sessions.retrieve(rawSession.id, {
+      expand: ['line_items.data.price.product', 'shipping_cost.shipping_rate', 'shipping'],
+    });
+
+    console.log("✅ Payment successful. Session ID:", session.id);
+
+    // ✅ NEW — fire server-side conversions. Deliberately not awaited and
+    // fully self-contained: tracking can never delay or break the order.
+    Promise.allSettled([
+      tracking.sendMetaCAPI(session),
+      tracking.sendGA4Purchase(session)
+    ]).catch(() => {});
+
+    await createShopifyOrder(session);
+  } catch (err) {
+    console.error("❌ Failed to retrieve full session:", err.message);
+  }
 });
 
 
@@ -224,6 +305,14 @@ async function createShopifyOrder(session) {
       note: isPolish
         ? "Zapłacono przez Stripe (BLIK)"
         : "Paid via Stripe (BLIK)",
+      // ✅ NEW — stamps the Stripe session and campaign source onto the order
+      // so you can reconcile Shopify against Stripe and Google Ads by hand.
+      note_attributes: [
+        { name: "stripe_session_id", value: String(session.id) },
+        { name: "utm_source", value: String(session.metadata?.utm_source || "") },
+        { name: "utm_campaign", value: String(session.metadata?.utm_campaign || "") },
+        { name: "gclid", value: String(session.metadata?.gclid || "") }
+      ],
       tags: ["BLIK"],
       shipping_lines: [
         {
@@ -261,7 +350,8 @@ async function createShopifyOrder(session) {
 
 
 app.post("/create-checkout-session", async (req, res) => {
-  const { items, customer_email, total_amount, language = 'en' } = req.body;
+  // ✅ CHANGED — accept the optional attribution object from the cart drawer
+  const { items, customer_email, total_amount, language = 'en', attribution = {} } = req.body;
   const isPolish = language.startsWith('pl');
 
   if (!items || items.length === 0 || !total_amount) {
@@ -273,6 +363,10 @@ app.post("/create-checkout-session", async (req, res) => {
     mode: 'payment',
     customer_creation: 'always',
     locale: isPolish ? 'pl' : 'en',
+
+    // ✅ NEW — attribution rides along with the payment
+    metadata: buildAttributionMetadata(attribution, req),
+
     shipping_address_collection: {
       allowed_countries: ['PL', 'GB', 'US'],
     },
@@ -417,6 +511,93 @@ app.get("/order-details", async (req, res) => {
   } catch (err) {
     console.error("Order fetch error:", err);
     res.status(500).json({ error: "Failed to retrieve order details" });
+  }
+});
+
+
+/* ================================================================== */
+/* ✅ NEW — Google Ads offline conversion CSV                          */
+/* Google Ads fetches this URL on a schedule. Stripe is the database:  */
+/* every paid session already stores its gclid in metadata.            */
+/* ================================================================== */
+
+app.get("/google-conversions.csv", async (req, res) => {
+  if (!process.env.CSV_SECRET || req.query.key !== process.env.CSV_SECRET) {
+    return res.status(403).send("Forbidden");
+  }
+
+  const hours = Math.min(parseInt(req.query.hours, 10) || 30, 720);
+  const since = Math.floor(Date.now() / 1000) - hours * 3600;
+  const conversionName = process.env.GOOGLE_CONVERSION_NAME || "BLIK Purchase Server";
+
+  const rows = [
+    "Google Click ID,Conversion Name,Conversion Time,Conversion Value,Conversion Currency"
+  ];
+
+  try {
+    for await (const s of stripe.checkout.sessions.list({
+      created: { gte: since },
+      limit: 100
+    })) {
+      if (s.payment_status !== "paid") continue;
+      const gclid = (s.metadata && s.metadata.gclid) || "";
+      if (!gclid) continue;
+
+      rows.push([
+        tracking.csvEscape(gclid),
+        tracking.csvEscape(conversionName),
+        tracking.csvEscape(tracking.googleAdsTime(s.created)),
+        tracking.csvEscape(((s.amount_total || 0) / 100).toFixed(2)),
+        tracking.csvEscape(String(s.currency || "pln").toUpperCase())
+      ].join(","));
+    }
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.status(200).send(rows.join("\n") + "\n");
+  } catch (err) {
+    console.error("❌ CSV build error:", err.message);
+    res.status(500).send("Error building CSV");
+  }
+});
+
+
+/* ✅ NEW — diagnostic. Tells you what share of paid orders carry attribution. */
+app.get("/attribution-health", async (req, res) => {
+  if (!process.env.CSV_SECRET || req.query.key !== process.env.CSV_SECRET) {
+    return res.status(403).send("Forbidden");
+  }
+
+  const days = Math.min(parseInt(req.query.days, 10) || 7, 30);
+  const since = Math.floor(Date.now() / 1000) - days * 86400;
+
+  const stats = {
+    days,
+    paid_sessions: 0,
+    with_gclid: 0,
+    with_gbraid_or_wbraid: 0,
+    with_meta_cookies: 0,
+    with_ga_client_id: 0,
+    with_no_attribution: 0
+  };
+
+  try {
+    for await (const s of stripe.checkout.sessions.list({
+      created: { gte: since },
+      limit: 100
+    })) {
+      if (s.payment_status !== "paid") continue;
+      const m = s.metadata || {};
+      stats.paid_sessions++;
+      if (m.gclid) stats.with_gclid++;
+      if (m.gbraid || m.wbraid) stats.with_gbraid_or_wbraid++;
+      if (m.fbp || m.fbc) stats.with_meta_cookies++;
+      if (m.ga_client_id) stats.with_ga_client_id++;
+      if (!m.gclid && !m.gbraid && !m.wbraid && !m.fbp && !m.fbc) stats.with_no_attribution++;
+    }
+    res.json(stats);
+  } catch (err) {
+    console.error("❌ Attribution health error:", err.message);
+    res.status(500).json({ error: "Failed" });
   }
 });
 

@@ -247,3 +247,5 @@ module.exports = {
   sha256: sha256,
   normalizePhone: normalizePhone,
 };
+  normalizePhone: normalizePhone,
+};

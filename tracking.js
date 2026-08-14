@@ -212,7 +212,10 @@ async function sendGA4Purchase(session) {
 /* Google Ads CSV row formatting                                       */
 /* ------------------------------------------------------------------ */
 
-// UTC with an explicit offset. Never affected by Poland's DST switch.
+// UTC with an explicit offset, in Google Ads' required upload format:
+// "yyyy-MM-dd HH:mm:ss +0000" — a space before the offset, no colon in it.
+// (Not the ISO-8601 "+00:00" style — Google's offline conversion importer
+// rejects that as an invalid Conversion Time value.)
 function googleAdsTime(unixSeconds) {
   const d = new Date(unixSeconds * 1000);
   const p = function (n) {
@@ -230,7 +233,7 @@ function googleAdsTime(unixSeconds) {
     p(d.getUTCMinutes()) +
     ":" +
     p(d.getUTCSeconds()) +
-    "+00:00"
+    " +0000"
   );
 }
 
@@ -245,7 +248,5 @@ module.exports = {
   googleAdsTime: googleAdsTime,
   csvEscape: csvEscape,
   sha256: sha256,
-  normalizePhone: normalizePhone,
-};
   normalizePhone: normalizePhone,
 };

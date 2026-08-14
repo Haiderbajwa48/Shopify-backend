@@ -4,7 +4,23 @@ const app = express();
 const cors = require("cors");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const axios = require("axios");
-const tracking = require("./tracking"); // ✅ NEW
+// ✅ GUARDED — tracking must NEVER be able to stop checkout.
+// If tracking.js is missing or fails to load, we fall back to no-ops
+// and the store keeps taking payments.
+let tracking;
+try {
+  tracking = require("./tracking");
+  console.log("✅ tracking.js loaded");
+} catch (e) {
+  console.error("⚠️ tracking.js NOT loaded — payments continue without it:", e.message);
+  tracking = {
+    sendMetaCAPI: async () => {},
+    sendGA4Purchase: async () => {},
+    googleAdsTime: (s) =>
+      new Date(s * 1000).toISOString().slice(0, 19).replace("T", " ") + "+00:00",
+    csvEscape: (v) => '"' + String(v === undefined || v === null ? "" : v).replace(/"/g, '""') + '"'
+  };
+}
 
 
 const allowedOrigins = [
